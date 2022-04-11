@@ -1,6 +1,3 @@
-This project is supported by Cult of Coders
-=======
-
 Purpose
 =======
 Make Meteor's `Session` object persist its values locally and across page
