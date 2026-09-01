@@ -1,61 +1,63 @@
 name: Test
+
 on: [push, pull_request]
 
 jobs:
   tsc:
+    name: Type-check
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v7
         with:
-          node-version: '16.x'
+          node-version: '24.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run tsc
-        run: |
-          npm ci && npm run tsc 
+        run: npm run tsc
 
   test:
+    name: Package tests (Meteor ${{ matrix.meteorRelease }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
+        # The consuming app (workspace/frontend) runs METEOR@3.5.1; package.js declares
+        # api.versionsFrom([... '3.0']), so 3.5.x is the release that actually matters.
         meteorRelease:
-          - '--release 1.8.2'
-          - '--release 1.8.3'
-          - '--release 1.9.1'
-          - '--release 1.10.2'
-          - '--release 1.11'
-          - '--release 1.12.1'
-          - '--release 2.1.1'
-          - '--release 2.2'
-          - '--release 2.3.2'
-          - '--release 2.4.1'
-          - '--release 2.5.6'
-          - '--release 2.6'
-          -
+          - '3.5.1'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v7
         with:
-          node-version: '12.x'
+          node-version: '24.x'
+          cache: npm
 
-      - name: Install Dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # Playwright drives the headless browser that runs the CLIENT tinytest->mocha suite.
+      # Only chromium is needed; --with-deps pulls the shared libraries the runner lacks.
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Meteor
         run: |
-          curl https://install.meteor.com | /bin/sh
-          npm i -g @zodern/mtest
+          curl https://install.meteor.com/?release=${{ matrix.meteorRelease }} | sh
+          echo "$HOME/.meteor" >> "$GITHUB_PATH"
 
-      - name: Run Tests
-        run: |
-          # Fix using old versions of Meteor
-          export NODE_TLS_REJECT_UNAUTHORIZED=0
-
-          # Retry tests since some of them are flaky
-          mtest --package ./ --once ${{ matrix.meteorRelease }} 
+      - name: Run tests
+        env:
+          TEST_BROWSER_DRIVER: playwright
+        run: meteor test-packages --once --driver-package meteortesting:mocha --release ${{ matrix.meteorRelease }} ./

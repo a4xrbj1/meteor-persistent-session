@@ -3,7 +3,11 @@
     "strict": true,
     "module": "commonjs",
     "target": "ESNext",
-    "noEmit": true
+    "noEmit": true,
+    "types": [
+      "meteor",
+      "mocha"
+    ]
   },
   "exclude": [
     "node_modules"

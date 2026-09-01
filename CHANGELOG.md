@@ -1,3 +1,111 @@
+### [Unreleased] - 2026-09-01 - dependency modernization (build tooling only)
+
+No change to the shipped package. Verified by rebuild rather than asserted: with
+`.meteor/local/isopacks/a4xrbj1_persistent-session` deleted and the app rebuilt, the served
+`/packages/a4xrbj1_persistent-session.js` is byte-identical before and after
+(sha256 `9e12fa97...85f6`, 32,166 bytes). The package version is therefore deliberately NOT bumped -
+`frontend/.meteor/versions` pins 0.5.0 and a bump would force a coupled app rebuild for zero
+behavioural delta.
+
+**Changed - devDependencies brought to current.**
+- `typescript` `~4.5.5` -> `^6.0.3`. 4.5.5 was published 2022-01-20 and is the LAST 4.5 patch, so the
+  `~4.5.5` range had nothing left to move to; the pin was frozen, not merely old. 6.0.3 was published
+  2026-04-16 and is what `frontend` - the only consumer - already runs. Deliberately NOT 7.0.2
+  (published 2026-07-08): it is the native Go port, the largest behavioural delta in the compiler's
+  history, and the consuming repo is not on it. Aligning with the consumer beats leading it.
+- `@types/meteor` `^2.7.1` -> `^2.9.11` (published 2026-02-03). A minor bump inside the existing
+  caret.
+
+Both clear the 7-day supply-chain quarantine by a wide margin - 137 and 210 days respectively.
+Neither needed the CVE fast-path.
+
+**Fixed - the type-check silently stopped seeing Meteor's ambient globals under TypeScript 6.**
+Upgrading the compiler produced 42 errors, every one of them in `tests/client/persistent_session.ts`
+and every one `TS2304: Cannot find name 'Tinytest'` or the `TS7006` implicit-any that follows from
+it. `lib/` was clean throughout. Diagnosed with `tsc --explainFiles` rather than guessed: TypeScript 6
+loads only the module declaration files actually imported - `ejson`, `meteor`, `reactive-dict`,
+`session`, `tracker`, `random`, plus transitive `blaze`/`ddp`/`mongo` - and never loads
+`@types/meteor/index.d.ts`, whose `/// <reference>` chain is the ONLY thing that brings in the
+`globals/*.d.ts` files. `Session` kept resolving because the test IMPORTS it from `meteor/session`;
+`Tinytest` is ambient-only, so it vanished. `tsconfig.json` now names the package explicitly with
+`"types": ["meteor"]`, which restores the reference chain. Proven in both directions: 42 errors
+without it, exit 0 with it. The same explicit-`types` form is already the established pattern in this
+workspace (`admin/jsconfig.json` uses `types: ["node", "mocha"]`).
+
+**Fixed - three vulnerabilities in the build toolchain, two of them high.**
+`npm audit` went 3 -> 0:
+- `ip` HIGH, GHSA-2p57-rm9w-gvfp, SSRF via improper categorization in `isPublic`
+- `socks` HIGH, inherited from `ip`
+- `mongodb` MODERATE, GHSA-vxvm-qww3-2fh7, driver may publish events containing authentication data
+
+All three descended from one root: `@types/meteor` -> `mongodb ^4.3.1` -> `socks` -> `ip`. Note that
+bumping `@types/meteor` did NOT fix this on its own - 2.9.11 still declares `mongodb ^4.3.1`.
+Regenerating the `lockfileVersion: 1` lockfile (written by npm 6, still claiming `version: 0.0.0`) is
+what let `socks` float 2.6.2 -> 2.8.9, and 2.8.x dropped the `ip` dependency entirely.
+
+**Changed - `.npmrc` added with `omit=optional`, to stop the toolchain pulling the AWS SDK.**
+Regenerating the lockfile also grew the tree 30 -> 53 packages, because `mongodb@4.17.2` declares
+`@aws-sdk/credential-providers` as an OPTIONAL dependency for AWS IAM auth and npm installs optional
+dependencies by default. That added 22 AWS SDK / smithy packages to a toolchain whose entire job is
+reading `.d.ts` files - it never opens a MongoDB connection, let alone authenticates to one. Since
+`package.js` declares no `Npm.depends`, none of it could ever ship, but it is still install-time
+supply-chain surface for no benefit. `node_modules` now holds 17 top-level entries with no
+`@aws-sdk` and no `@smithy`, while `mongodb` itself stays because `@types/meteor` reads its type
+definitions. `tsc` still exits 0 and `npm audit` still reports 0.
+
+**Changed - the test harness moved off two dead runners onto Meteor 3.x-native tooling.**
+The suite could not run at all on Meteor 3. CI drove it with `@zodern/mtest`, whose last commit is
+2022-02-23 and which depends on `puppeteer ^13.4.0` - it predates Meteor 3.0 entirely. Meteor's own
+`test-in-console` is not a substitute: measured here, it boots the app and then waits for a browser
+to connect, so `--once` never terminates. Both were replaced with the stack the rest of this
+workspace already uses:
+
+- `tinytest` -> `meteortesting:mocha`, in `package.js` `Package.onTest` ONLY. `Package.onUse` is
+  untouched, so nothing changes for consuming apps and no test package can reach an app bundle.
+- headless browser -> `playwright` 1.62.1, the same driver `workspace/e2e` runs. Chosen over
+  `puppeteer` on two counts: it is the existing workspace standard, and puppeteer's current release
+  (25.9.0, published 2026-08-25) sits right on the edge of the 7-day supply-chain quarantine while
+  playwright 1.62.1 (2026-07-30) clears it by a month.
+- `@types/mocha` 10.0.10 added, and `"mocha"` appended to the tsconfig `types` array, because the
+  same TypeScript 6 ambient-loading behaviour documented above applies to `describe` and `it`.
+
+The 21 tests were ported one-for-one: **21 `Tinytest.add` blocks -> 21 `it()` blocks, and 62
+`test.equal` calls -> 62 `equal()` calls**, with the `@ts-expect-error` and `@ts-ignore` pragmas
+preserved in place. Assertions use a local `equal()` helper built on `EJSON.equals` rather than
+chai, because a Meteor package resolves npm imports only through `Npm.depends`, which is
+package-scoped - adding chai would make an assertion library a RUNTIME dependency of a package that
+currently ships none at all. `EJSON.equals` is exactly what Tinytest compared with, so the ported
+assertions keep their original deep-equality meaning.
+
+Verified by running the real pipeline rather than a simulation of it:
+`TEST_BROWSER_DRIVER=playwright meteor test-packages --once --driver-package meteortesting:mocha
+--release 3.5.1 ./` gives **21 passing, SERVER FAILURES: 0, CLIENT FAILURES: 0, exit 0**. Proven in
+the other direction too - corrupting one expected value yields **19 passing, 2 failing, exit 1** - so
+the harness reports failure loudly instead of exiting 0 on a broken run.
+
+**Changed - CI rewritten for the Meteor 3.x world.**
+`.github/workflows/test.yml` pinned Node 16.x for its type-check job and Node 12.x for its test job,
+used `actions/checkout@v3` and `actions/setup-node@v3`, and ran a Meteor release matrix from 1.8.2 to
+2.6 - none of which the consuming app has used for over a year. It now runs Node **24.x** on both
+jobs (matching `frontend/.nvmrc`, which pins v24.15.0), `actions/checkout@v7` and
+`actions/setup-node@v7` (current majors, read from the GitHub API rather than assumed), npm caching,
+and a single Meteor **3.5.1** matrix entry - the release `workspace/frontend` actually runs.
+
+**Removed - `.versions`.**
+A generated Atmosphere lockfile fossil that still named `itgenio:persistent-session@0.4.12`,
+`meteor@1.11.5`, `typescript@4.9.5` and `tinytest@1.2.3`. It predates even the ferjep fork, is
+referenced by nothing in this repo, and describes a package name we no longer publish under. Meteor
+regenerates it on `meteor publish` if it is ever needed again.
+
+**Known and deliberately NOT changed - `api.versionsFrom(['1.8.2', '1.12', '2.3', '3.0'])`.**
+CI now exercises Meteor 3.5.1 only, so the 1.8.2 / 1.12 / 2.3 entries are a compatibility claim that
+nothing in this repo checks. They were not verified before this change either - the runner that
+nominally covered them, `@zodern/mtest`, has been dead since 2022 and never supported Meteor 3.x -
+so this makes an existing gap visible rather than creating one. The list is left intact because
+narrowing it is a BREAKING change for any consumer on Meteor 1.x/2.x, which is a bigger decision
+than a CI fix; `package.js` now carries a comment stating plainly that 1.x/2.x support is legacy and
+unverified. Narrowing to `['3.0']` remains open.
+
 ### [0.5.0] - 2026-09-01 - forked to `a4xrbj1:persistent-session`
 
 Forked from `ferjep:persistent-session@0.4.13` and renamed to `a4xrbj1:persistent-session`.
