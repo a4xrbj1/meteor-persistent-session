@@ -166,8 +166,14 @@ export class PersistentSession {
       this.psaKeyList.push(key);
     }
 
-    amplify.store(PS_KEYS, this.psKeyList);
-    amplify.store(PSA_KEYS, this.psaKeyList);
+    // The key LISTS must be namespaced by dict name, exactly as getPSKeys/getPSAKeys read them.
+    // Before 0.5.0 these two writes omitted `this._dictName` while the readers included it, so for
+    // any dict other than the default Session (whose _dictName is the empty string, which is why
+    // this was never noticed) the persisted key list was written to `__PSKEYS__` and read back from
+    // `__PSKEYS__<dictName>`. The list therefore always came back empty and every persistent and
+    // authenticated key in a named dict was silently dropped on reload.
+    amplify.store(PS_KEYS + this._dictName, this.psKeyList);
+    amplify.store(PSA_KEYS + this._dictName, this.psaKeyList);
     amplify.store(this._dictName + key, EJSON.toJSONValue(value));
   };
 

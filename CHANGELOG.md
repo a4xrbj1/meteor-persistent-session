@@ -1,3 +1,36 @@
+### [0.5.0] - 2026-09-01 - forked to `a4xrbj1:persistent-session`
+
+Forked from `ferjep:persistent-session@0.4.13` and renamed to `a4xrbj1:persistent-session`.
+
+**Why the fork.** The package sits on the login-persistence path of a production application, and
+its upstream is effectively unmaintained: `ferjep` had two commits in two and a half years, the most
+recent (2025-02-11) merely relaxing a `versionsFrom` constraint. Its own upstream `itgenio` last
+changed code on 2024-02-19, and the chain above that (`cult-of-coders`, 2021; `u2622`, now deleted
+from GitHub) is older still. A three-deep fork chain with a single maintainer and no activity is not
+a dependency to leave under a session layer.
+
+**Fixed - persistent keys were silently dropped for any named dict.**
+`store()` wrote the persistent and authenticated key LISTS to `__PSKEYS__` / `__PSAKEYS__` while
+`getPSKeys()` / `getPSAKeys()` read them back from `__PSKEYS__<dictName>` / `__PSAKEYS__<dictName>`.
+The two only coincide for the default `Session`, whose `_dictName` is the empty string - which is
+why this survived so long. For every other dict the key list came back empty on reload and all of
+its persistent and authenticated values were lost. Both writes are now namespaced to match the
+readers. No migration is needed: the mismatched data was never readable.
+
+**Fixed - one bad localStorage entry silently aborted the whole expiry sweep.**
+`amplify.clearExpired()` wrapped its entire loop in a single `try` with an empty `catch (error) {}`.
+A single unparseable value stopped the sweep from that entry onward, silently - and
+`JSON.parse(localStorage.getItem(key) ?? '')` throws on a missing key, because `''` is not valid
+JSON. This matters most exactly where it hurts most: `clearExpired()` is the recovery path
+`store()` calls after a quota-exceeded write, so the one moment the cache most needed pruning was
+the moment a single bad entry could stop it, causing the retry to fail as well. Each entry is now
+parsed in its own `try`, an unparseable entry is reclaimed rather than ignored, and removal still
+happens after the scan because `localStorage` is index-addressed and deleting mid-walk renumbers the
+remaining entries.
+
+**Unchanged.** The public API, storage format and data versions are identical to 0.4.13. This is a
+drop-in replacement; only the package name changes.
+
 ### [0.4.8]
 
 * TypeScript

@@ -1,8 +1,8 @@
 Package.describe({
-  name: 'ferjep:persistent-session',
-  version: '0.4.13',
-  summary: 'Meteor 3.0 | Persistently store Session data on the client',
-  git: 'https://github.com/ferjep/meteor-persistent-session',
+  name: 'a4xrbj1:persistent-session',
+  version: '0.5.0',
+  summary: 'Persistently store Session data on the client (Meteor 3.x) - Numero fork',
+  git: 'https://github.com/a4xrbj1/meteor-persistent-session',
 });
 
 function configurePackages(api) {

@@ -1,3 +1,10 @@
+> **This is `a4xrbj1:persistent-session`, a maintained fork.**
+> Forked from [`ferjep:persistent-session@0.4.13`](https://github.com/ferjep/meteor-persistent-session),
+> itself downstream of `itgenio` -> `cult-of-coders` -> `u2622` (deleted). The upstream chain is
+> effectively unmaintained - two commits in two and a half years, the last only relaxing a version
+> constraint - and this package sits on the login-persistence path of a production application.
+> See CHANGELOG.md for what changed in 0.5.0.
+
 Purpose
 =======
 Make Meteor's `Session` object persist its values locally and across page

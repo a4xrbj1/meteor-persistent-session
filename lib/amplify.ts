@@ -7,25 +7,39 @@ export const amplify = new (class SimpleAmplify {
     const now = Date.now();
     const ret: Record<string, any> = {};
     const removed: string[] = [];
-    let i = 0;
-    try {
-      let key;
-      while (key = localStorage.key(i++)) {
-        if (!rprefix.test(key)) continue;
 
-        const parsed = JSON.parse(localStorage.getItem(key) ?? '');
+    // Each entry is parsed inside its OWN try, and a malformed one is removed rather than ignored.
+    //
+    // Before 0.5.0 the whole loop sat in a single `try` with an EMPTY `catch (error) {}`. One
+    // unparseable value - and `JSON.parse(localStorage.getItem(key) ?? '')` throws on a missing key,
+    // because '' is not valid JSON - aborted the entire sweep silently, from that entry onward.
+    // That matters precisely when it is least affordable: clearExpired() is the recovery path
+    // store() calls after a quota-exceeded write, so the one moment the cache most needs pruning was
+    // the moment a single bad entry could stop it, leaving the retry to fail too.
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key === null || !rprefix.test(key)) continue;
 
-        if (parsed.expires && parsed.expires <= now) {
-          removed.push(key);
-        } else {
-          ret[key.replace(rprefix, '')] = parsed.data;
-        }
-
+      let parsed: { expires?: number | null; data?: any };
+      try {
+        const raw = localStorage.getItem(key);
+        parsed = raw === null ? { expires: -1 } : JSON.parse(raw);
+      } catch (error) {
+        // Unparseable: it can never be read back, so it is pure quota. Reclaim it.
+        removed.push(key);
+        continue;
       }
 
-      removed.forEach(key => localStorage.removeItem(key));
-    } catch (error) {
+      if (parsed && parsed.expires && parsed.expires <= now) {
+        removed.push(key);
+      } else if (parsed) {
+        ret[key.replace(rprefix, '')] = parsed.data;
+      }
     }
+
+    // Removal happens after the scan: localStorage is index-addressed, and deleting during the walk
+    // renumbers the remaining entries and would skip every other key.
+    removed.forEach(key => localStorage.removeItem(key));
 
     return ret;
   }
