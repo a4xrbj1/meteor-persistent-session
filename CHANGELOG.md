@@ -1,11 +1,17 @@
-### [Unreleased] - 2026-09-01 - dependency modernization (build tooling only)
+### [Unreleased] - 2026-09-01 - Meteor 3.x only, and a modernized build+test toolchain
 
-No change to the shipped package. Verified by rebuild rather than asserted: with
-`.meteor/local/isopacks/a4xrbj1_persistent-session` deleted and the app rebuilt, the served
-`/packages/a4xrbj1_persistent-session.js` is byte-identical before and after
-(sha256 `9e12fa97...85f6`, 32,166 bytes). The package version is therefore deliberately NOT bumped -
-`frontend/.meteor/versions` pins 0.5.0 and a bump would force a coupled app rebuild for zero
-behavioural delta.
+One BREAKING change - the supported Meteor range narrows to 3.x (see the last entry below). Beyond
+that this release is build and test tooling only: the emitted JavaScript is unchanged.
+
+Verified by rebuild rather than asserted. With `.meteor/local/isopacks/a4xrbj1_persistent-session`
+deleted and `workspace/frontend` rebuilt, the served `/packages/a4xrbj1_persistent-session.js` is
+byte-identical across every variant of this change - `tinytest` vs `meteortesting:mocha`, and
+`versionsFrom(['1.8.2', ...])` vs `versionsFrom(['3.0'])` - at sha256 `963c1496...796d`.
+
+The package version is deliberately NOT bumped despite the breaking change:
+`frontend/.meteor/versions` pins 0.5.0, `workspace/frontend` is the only consumer and is already on
+Meteor 3.5.1, and a bump would force a coupled app rebuild for a compatibility range no live
+consumer sits in. Revisit if this package is ever published to Atmosphere.
 
 **Changed - devDependencies brought to current.**
 - `typescript` `~4.5.5` -> `^6.0.3`. 4.5.5 was published 2022-01-20 and is the LAST 4.5 patch, so the
@@ -46,7 +52,7 @@ what let `socks` float 2.6.2 -> 2.8.9, and 2.8.x dropped the `ip` dependency ent
 **Changed - `.npmrc` added with `omit=optional`, to stop the toolchain pulling the AWS SDK.**
 Regenerating the lockfile also grew the tree 30 -> 53 packages, because `mongodb@4.17.2` declares
 `@aws-sdk/credential-providers` as an OPTIONAL dependency for AWS IAM auth and npm installs optional
-dependencies by default. That added 22 AWS SDK / smithy packages to a toolchain whose entire job is
+dependencies by default. That added 23 AWS SDK / smithy packages to a toolchain whose entire job is
 reading `.d.ts` files - it never opens a MongoDB connection, let alone authenticates to one. Since
 `package.js` declares no `Npm.depends`, none of it could ever ship, but it is still install-time
 supply-chain surface for no benefit. `node_modules` now holds 17 top-level entries with no
@@ -97,14 +103,29 @@ A generated Atmosphere lockfile fossil that still named `itgenio:persistent-sess
 referenced by nothing in this repo, and describes a package name we no longer publish under. Meteor
 regenerates it on `meteor publish` if it is ever needed again.
 
-**Known and deliberately NOT changed - `api.versionsFrom(['1.8.2', '1.12', '2.3', '3.0'])`.**
-CI now exercises Meteor 3.5.1 only, so the 1.8.2 / 1.12 / 2.3 entries are a compatibility claim that
-nothing in this repo checks. They were not verified before this change either - the runner that
-nominally covered them, `@zodern/mtest`, has been dead since 2022 and never supported Meteor 3.x -
-so this makes an existing gap visible rather than creating one. The list is left intact because
-narrowing it is a BREAKING change for any consumer on Meteor 1.x/2.x, which is a bigger decision
-than a CI fix; `package.js` now carries a comment stating plainly that 1.x/2.x support is legacy and
-unverified. Narrowing to `['3.0']` remains open.
+**BREAKING - `api.versionsFrom` narrowed to Meteor 3.x only.**
+`['1.8.2', '1.12', '2.3', '3.0']` -> `['3.0']`. Operator decision 2026-09-01: this fork tracks the
+latest generation of Meteor and does not carry 1.x/2.x compatibility. A consumer still on Meteor
+1.x or 2.x can no longer use this package, and that is intended.
+
+What is removed was an untested promise rather than working support. The runner that nominally
+covered those releases, `@zodern/mtest`, has been dead since 2022-02-23 and never supported Meteor
+3.x, so nothing in this repo has verified 1.x/2.x in years.
+
+To be precise about what replaces it: `['3.0']` is the declared FLOOR, not the tested surface. CI
+exercises **3.5.1 only**, so **3.0 through 3.4 are assumed compatible, not measured** - exactly as
+unverified as the entries just dropped. The floor is set at 3.0 rather than 3.5.1 because the
+operator's intent is "Meteor 3 and above", and because a 3.0-3.4 incompatibility would fail loudly
+at Meteor's constraint-solve step rather than silently.
+
+Only consumer confirmed by a workspace-wide sweep (`/usr/bin/grep -rl`, excluding `node_modules`,
+`.meteor`, `_build`, `worktrees`): `workspace/frontend`. `admin`, `test2` and `octopussy` have zero
+references, so no second Meteor app is broken by this.
+
+Byte-neutral for the current consumer, measured rather than assumed: with the isopack cleared and
+`workspace/frontend` rebuilt against the narrowed constraint, the served
+`/packages/a4xrbj1_persistent-session.js` is unchanged at sha256 `963c1496...796d` and the package
+test suite still reports 21 passing / 0 failing on Meteor 3.5.1.
 
 ### [0.5.0] - 2026-09-01 - forked to `a4xrbj1:persistent-session`
 
